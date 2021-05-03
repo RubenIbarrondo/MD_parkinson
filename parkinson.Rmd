@@ -1,0 +1,109 @@
+---
+title: 'Disfonía en enfermos de Parkinson'
+author: "Rubén Ibarrondo López y Miren Hayet Otero"
+date: "15/5/2021"
+header-includes:
+  \renewcommand{\contentsname}{Índice}
+output: 
+  pdf_document: 
+    extra_dependencies: ["float"]
+    fig_caption: yes
+    toc: true
+    number_sections: true
+  lang: "es-ES"
+fontsize: 12pt
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.pos = "H", out.extra = "")
+```
+```{r include=FALSE}
+# Cargar librerías necesarias
+library(tidyverse)
+library(colorspace)
+```
+
+\newpage
+
+# Objetivo
+
+El objetivo principal de este trabajo consiste en encontrar un modelo de clasificación capaz de diferenciar a enfermos de Parkinson de pacientes sanos, en base a registros de voz. Para ello, primero se van a analizar las características de los datos de los que se dispone, y después se ajustarán y compararán diferentes técnicas de clasificación.
+
+# Análisis preliminar
+
+Es necesario realizar un análisis preliminar de los datos para después obtener un modelo lo más fácil de interpretar y mejor posible.
+
+La base de datos utilizada se puede consultar [aquí](https://archive.ics.uci.edu/ml/datasets/Parkinsons). Se dispone de 195 registros de voz correspondientes a 31 pacientes, de los cuales hay 23 enfermos de Parkinson. Para cada registro se han recogido 23 medidas relacionadas con la voz:
+
+* MDVP.Fo.Hz: Frecuencia vocal fundamental media.
+* MDVP.Fhi.Hz : Frecuencia vocal fundamental máxima.
+* MDVP.Flo.Hz: Frecuencia vocal fundamental mínima.
+* MDVP.Jitter, MDVP.Jitter.Abs, MDVP.RAP, MDVP.PPQ, Jitter.DDP: Medidas de variación en la frecuencia fundamental.
+* MDVP.Shimmer, MDVP.Shimmer.dB, Shimmer.APQ3, Shimmer.APQ5, MDVP.APQ, Shimmer.DDA: Medidas de variación en la amplitud.
+* NHR,HNR: Medidas del ratio entre el ruido y las componentes tonales de la voz.
+* status: Estado de salud del paciente. 1-Parkinson, 0-Sano.
+* RPDE, D2: Medidas no-lineales de complejidad dinámica.
+* DFA: Exponente escalador de fractal de señal.
+* spread1, spread2, PPE: Medidas no-lineales de la variación de la frecuencia fundamental.
+
+En este caso no hay ningún dato ausente por lo que no va a ser necesaria ninguna estrategia de imputación.
+
+A continuación se puede ver un resumen de las diferentes variables:
+
+\scriptsize
+
+```{r}
+# Cargar fichero de datos
+parkinson <- read.table("D:/Miren/Master I/MD/Trabajo final/parkinsons.data",sep=',',header = TRUE)
+# Resumen
+summary(parkinson)
+```
+\normalsize
+No parece haber ningún dato disparatado por lo que parecen ser variables coherentes O A LO MEJOR NO Y COMPROBAR COHERENCIA DATOS INUSUALES!! BOXPLOT????????. La distribución dela variable de clasificación nos indica que en torno a un 75% de los registros corresponden a enfermos de Parkinson.
+
+A la hora de crear cualquier modelo de clasificación es importante que la cantidad de variabables que lo forman sea lo menor posible, ya que esto facilita su aplicación e interpretación. Muchas veces las medidas/variables de las que se dispone no suelen aportar demasiada información a la hora de clasificar, ya sea por que no están relacionadas con la variable de clasificación o porque no presentan gran variabilidad. También puede ocurrir que algunas variables estén altamente correladas entre sí, por lo que si se incluyen todas en el modelo, no van a aportar nueva información a la hora de clasificar.
+
+Comencemos por ver si hay alguna variable con poca variabilidad:
+
+\scriptsize
+```{r}
+# Comprobar varianza de variables
+require(caret)
+nearZeroVar(parkinson[-c(1,18)], saveMetrics= TRUE)
+```
+
+\normalsize
+
+Todas las variables presentan una variabilidad suficiente como para poder aportar información en la clasificación.
+
+Para comprobar su Veamos que importancia tiene cada variable en relación con la variable de clasificación:
+
+\scriptsize
+
+```{r}
+# Importancia de las variables
+rocvarimp2<-filterVarImp(x = parkinson[-c(1,18)], 
+                         y = as.factor(parkinson$status))
+apply(rocvarimp2, 1, mean) %>% sort()
+```
+\normalsize
+
+Ninguna variable obtiene una puntuación que nos asegure que no es lo suficientemente importante como para no incluirla en el modelo.
+
+Por último, nos queda comprobar si existe correlación entre las variables. En el gráfico \@ref{fig:corr} se pueden las correlaciones más altas entre variables. Concretamente se distinguen en 4 tonalidades que van desde el azul oscuro al claro las correlaciones mayores a 0.95, 0.9, 0.85 y 0.8 respectivamente.
+
+```{r corr, out.height="70%",out.width="70%",fig.align='center',fig.cap='Correlación entre variables'}
+require("corrplot")
+corrplot((abs(cor(parkinson[-c(1,18)]))>0.95)*0.25+
+           (abs(cor(parkinson[-c(1,18)]))>0.9)*0.25+
+           (abs(cor(parkinson[-c(1,18)]))>0.85)*0.25+
+           (abs(cor(parkinson[-c(1,18)]))>0.8)*0.25,method="circle")
+```
+
+Por lo tanto, si establecemos 0.95 como la máxima correlación que pueden tener dos variables en el modelo, tendremos que escoger una variable entre MDVP.Jitter, MDVP.RAP, MDVP.PPQ y Jitter.DDP, entre MDVP.Shimmer y MDVP.Shimmer.dB y entre spread1 y PPE. Basándonos en la importancia de las variables nos quedaremos con MVDP.PPQ, MDVP.Shimmer.dB y spread1.
+
+```{r}
+parkinson.fil <- parkinson[-c(1, 18, 5, 7, 9, 10, 12, 13, 14, 15, 24)]
+```
+
+
