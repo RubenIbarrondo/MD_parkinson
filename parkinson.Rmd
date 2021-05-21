@@ -19,6 +19,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.pos = 
 ```
 ```{r include=FALSE}
 # Cargar librerías necesarias
+library(Rcmdr)
 library(tidyverse)
 library(colorspace)
 ```
@@ -41,7 +42,7 @@ La base de datos utilizada se puede consultar [aquí](https://archive.ics.uci.ed
 * MDVP.Jitter, MDVP.Jitter.Abs, MDVP.RAP, MDVP.PPQ, Jitter.DDP: Medidas de variación en la frecuencia fundamental.
 * MDVP.Shimmer, MDVP.Shimmer.dB, Shimmer.APQ3, Shimmer.APQ5, MDVP.APQ, Shimmer.DDA: Medidas de variación en la amplitud.
 * NHR,HNR: Medidas del ratio entre el ruido y las componentes tonales de la voz.
-* status: Estado de salud del paciente. 1-Parkinson, 0-Sano.
+* status: Estado de salud del paciente. 1-Enfermo de Parkinson, 0-Sano.
 * RPDE, D2: Medidas no-lineales de complejidad dinámica.
 * DFA: Exponente escalador de fractal de señal.
 * spread1, spread2, PPE: Medidas no-lineales de la variación de la frecuencia fundamental.
@@ -54,18 +55,23 @@ A continuación se puede ver un resumen de las diferentes variables:
 
 ```{r}
 # Cargar fichero de datos
-parkinson <- read.table("D:/Miren/Master I/MD/Trabajo final/parkinsons.data",sep=',',header = TRUE)
+path="D:/Miren/Master I/MD/Trabajo final/parkinsons.data"
+parkinson <- read.table(path, sep=',', header = TRUE)
+parkinson$status<-factor(parkinson$status, 
+                         labels=c('Sano','Parkinson'))
 # Resumen
 summary(parkinson)
 ```
 \normalsize
-No parece haber ningún dato disparatado por lo que parecen ser variables coherentes O A LO MEJOR NO Y COMPROBAR COHERENCIA DATOS INUSUALES!! BOXPLOT????????. La distribución dela variable de clasificación nos indica que en torno a un 75% de los registros corresponden a enfermos de Parkinson.
 
-A la hora de crear cualquier modelo de clasificación es importante que la cantidad de variabables que lo forman sea lo menor posible, ya que esto facilita su aplicación e interpretación. Muchas veces las medidas/variables de las que se dispone no suelen aportar demasiada información a la hora de clasificar, ya sea por que no están relacionadas con la variable de clasificación o porque no presentan gran variabilidad. También puede ocurrir que algunas variables estén altamente correladas entre sí, por lo que si se incluyen todas en el modelo, no van a aportar nueva información a la hora de clasificar.
+No parece haber ningún dato disparatado por lo que parecen ser variables coherentes O A LO MEJOR NO Y COMPROBAR COHERENCIA DATOS INUSUALES!! BOXPLOT????????. La distribución de la variable de clasificación nos indica que en torno a un 75% de los registros corresponden a enfermos de Parkinson.
+
+A la hora de crear cualquier modelo de clasificación es importante que la cantidad de variables que lo forman sea lo menor posible, ya que esto facilita su aplicación e interpretación. Muchas veces las medidas/variables de las que se dispone no suelen aportar demasiada información a la hora de clasificar, ya sea por que no están relacionadas con la variable de clasificación o porque no presentan gran variabilidad. También puede ocurrir que algunas variables estén altamente correladas entre sí, por lo que si se incluyen todas en el modelo, no van a aportar nueva información a la hora de clasificar.
 
 Comencemos por ver si hay alguna variable con poca variabilidad:
 
 \scriptsize
+
 ```{r}
 # Comprobar varianza de variables
 require(caret)
@@ -76,7 +82,7 @@ nearZeroVar(parkinson[-c(1,18)], saveMetrics= TRUE)
 
 Todas las variables presentan una variabilidad suficiente como para poder aportar información en la clasificación.
 
-Para comprobar su Veamos que importancia tiene cada variable en relación con la variable de clasificación:
+Veamos que importancia tiene cada variable en relación con la variable de clasificación:
 
 \scriptsize
 
@@ -90,20 +96,432 @@ apply(rocvarimp2, 1, mean) %>% sort()
 
 Ninguna variable obtiene una puntuación que nos asegure que no es lo suficientemente importante como para no incluirla en el modelo.
 
-Por último, nos queda comprobar si existe correlación entre las variables. En el gráfico \@ref{fig:corr} se pueden las correlaciones más altas entre variables. Concretamente se distinguen en 4 tonalidades que van desde el azul oscuro al claro las correlaciones mayores a 0.95, 0.9, 0.85 y 0.8 respectivamente.
+Por último, nos queda comprobar si existe correlación entre las variables. En la figura \ref{corr} se muestran las correlaciones más altas entre variables. Concrétamente se distinguen en 4 tonalidades que van desde el azul oscuro al claro las correlaciones mayores a 0.95, 0.9, 0.85 y 0.8 respectivamente.
 
-```{r corr, out.height="70%",out.width="70%",fig.align='center',fig.cap='Correlación entre variables'}
+```{r, out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{corr}Correlación entre variables'}
+# Gráfico de correlaciones
 require("corrplot")
 corrplot((abs(cor(parkinson[-c(1,18)]))>0.95)*0.25+
            (abs(cor(parkinson[-c(1,18)]))>0.9)*0.25+
            (abs(cor(parkinson[-c(1,18)]))>0.85)*0.25+
-           (abs(cor(parkinson[-c(1,18)]))>0.8)*0.25,method="circle")
+           (abs(cor(parkinson[-c(1,18)]))>0.8)*0.25, method="circle",
+         tl.col = "black")
 ```
 
 Por lo tanto, si establecemos 0.95 como la máxima correlación que pueden tener dos variables en el modelo, tendremos que escoger una variable entre MDVP.Jitter, MDVP.RAP, MDVP.PPQ y Jitter.DDP, entre MDVP.Shimmer y MDVP.Shimmer.dB y entre spread1 y PPE. Basándonos en la importancia de las variables nos quedaremos con MVDP.PPQ, MDVP.Shimmer.dB y spread1.
 
 ```{r}
-parkinson.fil <- parkinson[-c(1, 18, 5, 7, 9, 10, 12, 13, 14, 15, 24)]
+# Crear nuevo dataset con las variables que interesan
+# (Status es el elemento número 9)
+parkinson.fil <- parkinson[-c(1, 5, 7, 9, 10, 12, 13, 14, 15, 24)]
+parkinson.fil<-parkinson.fil%>%relocate(status)
+```
+
+Por último, analicemos la estructura de asociación entre las variables seleccionadas mediante el Análisis de Componentes Principales. Vemos que los cuatro primer componentes recogen en torno al 80% de la variabilidad:
+
+\scriptsize
+
+```{r}
+# Calcular componentes principales
+parkinson.PC <- princomp(parkinson.fil[-c(1)], cor=TRUE, scores=TRUE)
+summary(parkinson.PC)
+# Añadir los PC al dataset
+parkinson.fil$PC1<-parkinson.PC$scores[,1]
+parkinson.fil$PC2<-parkinson.PC$scores[,2]
+parkinson.fil$PC3<-parkinson.PC$scores[,3]
+parkinson.fil$PC4<-parkinson.PC$scores[,4]
+```
+\normalsize
+
+En la figura \ref{pc} podemos ver la estructura de los primeros cuatro componentes principales respecto al status del paciente. En los dos primeros componentes parece haber una pequeña diferencia entre el comportamiento de los pacientes sanos y enfermos, aunque en general no hay una distinción clara.
+
+```{r,out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{pc}Estructura de los primeros cinco componentes principales por status del paciente'}
+# Graficar CP por status
+scatterplotMatrix(~parkinson.PC$scores[,1:4] | status, regLine=FALSE, smooth=FALSE,
+                  diagonal=list(method="density"), by.groups=TRUE,
+                  data=parkinson.fil, col=c('#EFC00099','#0073C299'))
+```
+
+Una vez realizado en análisis preliminar que nos ha permitido conocer mejor los datos y hacer una limpia de aquellas variables innecesarias, vamos a dividir el conjunto de datos en un conjunto de entrenamiento y validación que contengan el 75% y el 25% de los datos, respectivamente.
+
+```{r}
+# Crear muestras
+set.seed(725)
+n_data<-195
+train<-sample(c(1:n_data), round(0.75 *n_data)) # Muestra de entrenamiento
+test<- setdiff(c(1:n_data), train) # Muestra de validación
+parkinson.fil.train<-parkinson.fil[train,]
+parkinson.fil.test<-parkinson.fil[test,]
+```
+
+# Clasificador tipo Bagging
+
+El primer clasificador escogido ha sido uno de tipo árbol, concretamente el metaclasificador Bagging. Este método crea varios modelos a partir de diferentes muestras, y clasifica cada individuo de acuerdo a lo que diga la mayoría de los modelos.
+
+```{r message=FALSE, warning=FALSE}
+# Crear modelo bagging
+library(adabag)
+set.seed(200323)
+parkinson.bagging <- bagging(status~., data=parkinson.fil.train[,1:14],
+                             mfinal=50)
+```
+
+En la figura \ref{bagimp} podemos observar la importancia de las variables a la hora de clasificar las muestras:
+
+```{r,out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{bagimp}Importancia de las variables en la clasificación de tipo Bagging'}
+# Plotear importancia
+a<-rev(sort(parkinson.bagging$importance))
+importanceplot(parkinson.bagging,cex.names=0.5)
+```
+
+En la figura \ref{errorbag} podemos observar el error frente al número de árboles. Vemos que en torno a las 40 iteraciones el error se minimiza.
+
+```{r,out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{errorbag}Error del método Bagging frente al número de árboles'}
+# Plotear error
+errorevol.train <-errorevol(parkinson.bagging, 
+                            parkinson.fil.train[,1:14] )
+errorevol.test <-errorevol(parkinson.bagging, 
+                            parkinson.fil.test[,1:14] )
+plot(errorevol.train[[1]], type = "l", xlab = "Iterations", 
+     ylab = "Error", col = '#0073C299', lwd = 2, ylim=c(0,0.4))
+lines(errorevol.test[[1]], cex = 0.5, col = '#CD534C99', lty = 1,
+      lwd = 2)
+lines(errorevol.test[[1]]+errorevol.train[[1]], cex = 0.5,
+col = '#EFC00099', lty = 2,lwd = 2)
+legend("topright", c("train", "test","train+test"), 
+       col=c('#0073C299','#CD534C99','#EFC00099'), lty = c(1,1,2),
+       lwd = 2)
 ```
 
 
+# Clasificador tipo SVM
+
+El segundo clasificador escogido ha sido uno de tipo SVM (máquina de vector soporte). Se va a hacer uso de la librería `e1071`, ya que tiene implementados los métodos de tipo SVM. Para reducir la dimensionalidad del problema vamos a trabajar con los primeros cuatro componentes principales, ya que como hemos visto recogen una gran parte de la variabilidad. 
+
+Uno de los métodos implementados permite, mediante validación cruzada, dar con el clasificador que mejor se ajusta a los datos:
+
+\scriptsize
+
+```{r}
+# SVM
+# Calcular modelo svm óptimo mediante CV
+require(e1071)
+parkinson.svm.PC<-tune.svm(status~PC1+PC2+PC3+PC4, 
+                           data=parkinson.fil.train,
+              coef0=c(0, 0.5, 1,1.5,2.5,5 ), degree=1:5, 
+              cost=c(0.1,1,10))
+parkinson.svm.PC$best.parameters
+parkinson.svm.PC.1<-svm(status~PC1+PC2+PC3+PC4,
+                        data=parkinson.fil.train, 
+                        coef0=0, cost=10, degree=1, probability = TRUE)
+```
+
+\normalsize
+
+Nos indica que el mejor modelo es un clasificador de grado 1, coeficiente 0 y coste 10. En la figura \ref{svmplot} podemos visualizar la clasificación que realiza ese modelo sobre los primeros dos componentes principales. Tanto en la muestra de entrenamiento como en la de validación encontramos datos mal clasificados. !!!!!!!!!EXPLICARR QUE COJONES SON ESTOS GRÄFICOS QUE NO CUADRAN CON NADA!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+```{r,fig.show="hold", out.width="45%",fig.align='center',fig.cap='\\label{svmplot}Clasificación del modelo SVM sobre los primeros dos componentes principales (izquerda:muestra de entrenamiento, derecha: muestra de validación)'}
+# Plotear modelo
+plot(parkinson.svm.PC.1,data=parkinson.fil.train,
+     formula=PC1~PC2,symbolPalette=c('#EFC00099','#CD534C99'),
+     color.palette=hsv_palette(h = 204/360, from = 0.9, to = 0.4, v =0.9))
+
+plot(parkinson.svm.PC.1,data=parkinson.fil.test,
+     formula=PC1~PC2,symbolPalette=c('#EFC00099','#CD534C99'),
+     color.palette=hsv_palette(h = 204/360, from = 0.9, to = 0.4, v =0.9))
+```
+
+
+# Clasificador tipo Boosting
+
+El último clasificador a analizar va a ser el de tipo Boosting. Este clasificador combina los resultados de clasificadores blandos, adjudicando un peso a cada uno de ellos en función de su historial de aciertos-fallos. Con tal de intentar utilizar los clasificadroes más blandos posibles, se suelen utilizar árboles de profundidad 1 (stumps), y es lo que haremos en este caso. En R hay más de un paquete que implementa este método, entre los que hemos escogido `gbm`.
+
+```{r corr, out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{impboost}Importancia de las variables en el modelo Boosting'}
+# Modelo boosting
+library(gbm)
+cntrl<-rpart.control(maxdepth=1)
+parkinson.boost <- boosting(status ~ .,
+                            data=parkinson.fil.train[,1:14],
+                            mfinal=300, control=cntrl)
+```
+En la figura \ref{boostimp} podemos observar la importancia de las variables para el clasificador de tipo Boosting.
+
+```{r,out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{boostimp}Importancia de las variables en la clasificación de tipo Boosting'}
+# Plotear importancia
+a<-rev(sort(parkinson.boost$importance))
+importanceplot(parkinson.boost,cex.names=0.5)
+```
+
+Por otro lado, podemos analizar el error para las muestras de entrenamiento y validación en base al número de árboles utilizados. Tal y como vemos en la figura \ref{errorboost}a partir de entorno a 65-70 árboles el error cometido en la muestra de entrenamiento es nulo, por lo que se ajusta muy bien a los datos. Sin embargo hacen falta en torno a 130 árboles para que se estabilice el error en la muestra de validación, en este caso en torno a 0.1
+
+```{r,out.height="70%",out.width="70%",fig.align='center',fig.cap='\\label{errorboost}Error del método Boosting frente al número de árboles'}
+# Plotear error
+boost.errorevol.train <-errorevol(parkinson.boost, 
+                            parkinson.fil.train[,1:14] )
+boost.errorevol.test <-errorevol(parkinson.boost, 
+                            parkinson.fil.test[,1:14] )
+plot(boost.errorevol.train[[1]], type = "l", xlab = "Iterations", 
+     ylab = "Error", col = '#0073C299', lwd = 2, ylim=c(0,0.4))
+lines(boost.errorevol.test[[1]], cex = 0.5, col = '#CD534C99', lty = 1,
+      lwd = 2)
+lines(boost.errorevol.test[[1]]+boost.errorevol.train[[1]],
+      cex = 0.5, col = '#EFC00099', lty = 2,lwd = 2)
+legend("topright", c("train", "test","train+test"), 
+       col=c('#0073C299','#CD534C99','#EFC00099'), lty = c(1,1,2),
+       lwd = 2)
+```
+
+# Comparación de clasificadores
+
+Disponemos de varias herramientas para analizar y comparar la calidad de los modelos seleccionados.
+
+## Tablas de confusión
+
+Uno de los indicadores más fáciles de interpretar son las tablas de confusión, que resumen los aciertos y errores cometidos durante la clasificación.
+
+Comencemos por ver las predicciones del primer modelo, el metaclasificador Bagging.
+
+\scriptsize
+
+```{r}
+# Tablas de confusión bagging
+# Calcular valores y probabilidades para bagging
+bagging.pred.train<-predict(parkinson.bagging,
+                            parkinson.fil.train[,1:14], 
+                            probability = TRUE)
+bagging.pred.train.prob<-bagging.pred.train$prob
+bagging.pred.train<-bagging.pred.train$class
+bagging.pred.test<-predict(parkinson.bagging,
+                            parkinson.fil.test[,1:14], 
+                            probability = TRUE)
+bagging.pred.test.prob<-bagging.pred.test$prob
+bagging.pred.test<-bagging.pred.test$class
+# Tablas
+xtabs(~parkinson.fil.train$status+bagging.pred.train)
+xtabs(~parkinson.fil.test$status+ bagging.pred.test)
+```
+
+\normalsize
+
+Para el modelo SVM las tablas de confusión correspondientes a la muestra de entrenamiento y validación son las siguientes:
+
+\scriptsize
+
+```{r}
+# Tablas de confusión SVM
+# Calcular valores y probabilidades para SVM
+svm.pred.train<-predict(parkinson.svm.PC.1,parkinson.fil.train, 
+                       probability = TRUE)
+svm.pred.train.prob<-attr(svm.pred.train,"probabilities")
+svm.pred.test<-predict(parkinson.svm.PC.1,parkinson.fil.test, 
+                       probability = TRUE)
+svm.pred.test.prob<-attr(svm.pred.test,"probabilities")
+xtabs(~parkinson.fil.train$status+svm.pred.train)
+xtabs(~parkinson.fil.test$status+ svm.pred.test)
+```
+\normalsize
+
+Por último veamos las tablas de confusión para el modelo Boosting.
+
+\scriptsize
+
+```{r}
+# Tablas de confusión Boosting
+# Probabilidades y predicciones para el modelo Boosting
+boost.pred.train<-predict(parkinson.boost,parkinson.fil.train)
+boost.pred.test<-predict(parkinson.boost,parkinson.fil.test)
+boost.pred.train.prob<-boost.pred.train$prob
+boost.pred.test.prob<-boost.pred.test$prob
+boost.pred.train<-boost.pred.train$class
+boost.pred.test<-boost.pred.test$class
+# Tablas
+xtabs(~parkinson.fil.train$status+boost.pred.train)
+xtabs(~parkinson.fil.test$status+ boost.pred.test)
+```
+
+\normalsize
+
+El clasificador Boosting es el que mejor se adapta a la muestra de entrenamiento, ya que consigue clasificar correctamente todos los registros de voz, y el SVM el que mejor clasifica en la muestra de validación. Si prestamos atención a los falsos negativos, los tres modelos predicen 2: los Bagging y Boosting fallan en la muestra de validación, mientras que el SVM falla en un registro en cada muestra.
+
+## Curva ROC
+
+Otra herramienta para medir la validez de un modelo es la curva ROC, la cual nos da una idea sobre la habilidad del modelo a la hora de distinguir entre positivos y negativos. Podemos plantear esta curva de varias maneras: se puede representar la probabilidad de predecir un positivo real (sensibilidad) frente a la probabilidad  de predecir un negativo real(especificidad), o la probabilidad de predecir un positivo real frente a un falso positivo(especificidad-1).
+
+En el caso del modelo Bagging las curvas ROC para las muestras de entrenamiento y validación son las de la figuras \ref{rocbaggingtr} y \ref{rocbaggingte}, respectivamente.
+
+```{r, fig.show="hold", out.width="45%",fig.align='center',, fig.cap='\\label{rocbaggingtr}Curvas ROC para el modelo Bagging en la muestra de entrenamiento (izquierda: sensibilidad-especificidad, derecha: sensibilidad-especificidad)', message=FALSE, warning=FALSE}
+# Curvas ROC para Bagging
+library(pROC)
+ROC_bagging_train<-roc(as.numeric(parkinson.fil.train$status),
+             bagging.pred.train.prob[,2],
+             ci=TRUE)
+plot(ROC_bagging_train, print.auc=TRUE)
+library(ROCit)
+ROCit_bagging_train<- rocit(score=bagging.pred.train.prob[,2],
+                  class=parkinson.fil.train$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_bagging_train)
+```
+
+```{r,fig.show="hold", out.width="45%",fig.align='center', fig.cap='\\label{rocbaggingte}Curvas ROC para el modelo Bagging en la muestra de validación (izquierda: sensibilidad-especificidad, derecha:sensibilidad-especificidad-1)', message=FALSE, warning=FALSE}
+# Curvas ROC para Bagging
+ROC_bagging_test<-roc(as.numeric(parkinson.fil.test$status),
+             bagging.pred.test.prob[,2],
+             ci=TRUE)
+plot(ROC_bagging_test, print.auc=TRUE)
+ROCit_bagging_test<- rocit(score=bagging.pred.test.prob[,2],
+                  class=parkinson.fil.test$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_bagging_test)
+```
+
+\scriptsize
+
+```{r}
+cat('El area bajo la curva del primer gráfico es de',
+    ROC_bagging_train$auc,'para la muestra de entrenamiento \n y de',ROC_bagging_test$auc,'para la muestra de validación')
+cat('\n El area bajo la curva del segundo gráfico es de',
+    ROCit_bagging_train$AUC,'para la muestra de entrenamiento \n y de',ROCit_bagging_test$AUC,'para la muestra de validación')
+```
+
+\normalsize
+
+En las figura \ref{rocsvmtr} y \ref{rocsvmte} podemos observar las diferentes curvas para el modelo SVM sobre la muestra de entrenamiento y validación, respectivamente.
+
+```{r,fig.show="hold", out.width="45%",fig.align='center', fig.cap='\\label{rocsvmtr}Curvas ROC para el modelo SVM en la muestra de entrenamiento (izquierda: sensibilidad-especificidad, derecha: sensibilidad-especificidad)', message=FALSE, warning=FALSE}
+# Curvas ROC para SVM
+ROC_svm_train<-roc(as.numeric(parkinson.fil.train$status),
+             svm.pred.train.prob[,2],
+             ci=TRUE)
+plot(ROC_svm_train, print.auc=TRUE)
+ROCit_svm_train<- rocit(score=svm.pred.train.prob[,2],
+                  class=parkinson.fil.train$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_svm_train)
+```
+
+```{r,fig.show="hold", out.width="45%",fig.align='center', fig.cap='\\label{rocsvmte}Curvas ROC para el modelo SVM en la muestra de validación (izquierda: sensibilidad-especificidad, derecha:sensibilidad-especificidad-1)', message=FALSE, warning=FALSE}
+# Curvas ROC para SVM
+ROC_svm_test<-roc(as.numeric(parkinson.fil.test$status),
+             svm.pred.test.prob[,2],
+             ci=TRUE)
+plot(ROC_svm_test, print.auc=TRUE)
+ROCit_svm_test<- rocit(score=svm.pred.test.prob[,2],
+                  class=parkinson.fil.test$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_svm_test)
+```
+
+\scriptsize
+
+```{r}
+cat('El area bajo la curva del primer gráfico es de',
+    ROC_svm_train$auc,'para la muestra de entrenamiento \n y de',ROC_svm_test$auc,'para la muestra de validación')
+cat('\n El area bajo la curva del segundo gráfico es de',
+    ROCit_svm_train$AUC,'para la muestra de entrenamiento \n y de',ROCit_svm_test$AUC,'para la muestra de validación')
+```
+\normalsize
+
+Por último, las curvas ROC para las muestras de entrenamiento y validación del modelo Boosting las podemos encontrar en figuras \ref{rocboosttr} y \ref{rocboostte}, respectivamente.
+
+```{r, fig.show="hold", out.width="45%",fig.align='center',, fig.cap='\\label{rocboosttr}Curvas ROC para el modelo Boosting en la muestra de entrenamiento (izquierda: sensibilidad-especificidad, derecha: sensibilidad-especificidad)', message=FALSE, warning=FALSE}
+# Curvas ROC para Boosting
+library(pROC)
+ROC_boost_train<-roc(as.numeric(parkinson.fil.train$status),
+             boost.pred.train.prob[,2],
+             ci=TRUE)
+plot(ROC_boost_train, print.auc=TRUE)
+library(ROCit)
+ROCit_boost_train<- rocit(score=boost.pred.train.prob[,2],
+                  class=parkinson.fil.train$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_boost_train)
+```
+
+```{r,fig.show="hold", out.width="45%",fig.align='center', fig.cap='\\label{rocboostte}Curvas ROC para el modelo Boosting en la muestra de validación (izquierda: sensibilidad-especificidad, derecha:sensibilidad-especificidad-1)', message=FALSE, warning=FALSE}
+# Curvas ROC para Boosting
+ROC_boost_test<-roc(as.numeric(parkinson.fil.test$status),
+             boost.pred.test.prob[,2],
+             ci=TRUE)
+plot(ROC_boost_test, print.auc=TRUE)
+ROCit_boost_test<- rocit(score=boost.pred.test.prob[,2],
+                  class=parkinson.fil.test$status, 
+                  method="empirical",negref='Sano')
+plot(ROCit_boost_test)
+```
+
+\scriptsize
+
+```{r}
+cat('El area bajo la curva del primer gráfico es de',
+    ROC_boost_train$auc,'para la muestra de entrenamiento \n y de',ROC_boost_test$auc,'para la muestra de validación')
+cat('\n El area bajo la curva del segundo gráfico es de',
+    ROCit_boost_train$AUC,'para la muestra de entrenamiento \n y de',ROCit_boost_test$AUC,'para la muestra de validación')
+```
+
+\normalsize
+
+Atendiendo al valor AUC de las curvas ROC de cada modelo, podríamos concluir que el modelo Boosting es el más adecuado.
+
+## Curva Lift
+
+La última herramienta que vamos a utilizar para analizar la calidad de los modelos va a ser la curva Lift. Representa el ratio de positivos detectados por el clasificador respecto a los casos positivos que detectaría un modelo aleatorio, frente a una muestra de la población.
+
+Para el clasificador Bagging tenemos las curva Lift pra las muestras de entrenamiento y validación en la figura \ref{liftbagging}. Podemos apreciar como el ajuste en la muestra de entrenamiento es cercano al perfecto, pero en la muestra de validación no. 
+
+```{r,,fig.show="hold", out.width="45%",fig.align='center',fig.cap='\\label{liftbagging}Curvas Lift para el modelo bagging (izquierda: entrenamiento, derecha: validación)'}
+require(caret)
+# Curvas Lift para Bagging
+lift_bagging_train<-lift(status ~ bagging.pred.train.prob[,1],
+                     data=parkinson.fil.train, class="Sano")
+
+xyplot(lift_bagging_train, plot="gain") #gain curve (default)
+
+lift_bagging_test<-lift(status ~ bagging.pred.test.prob[,1],
+                    data=parkinson.fil.test,
+                    class="Sano")
+
+xyplot(lift_bagging_test, plot="gain") #gain curve (default)
+```
+
+Analicemos ahora la curva Lift del modelo SVM. En la figura \ref{liftsvm} podemos observar que realiza un ajuste casi perfecto para la muestra de entrenamiento, pero no así para la de validación.
+
+```{r,fig.show="hold", out.width="45%",fig.align='center',fig.cap='\\label{liftsvm}Curvas Lift para el modelo SVM (izquierda: entrenamiento, derecha: validación)'}
+require(caret)
+# Curvas Lift para SVM
+lift_svm_train<-lift(status ~ svm.pred.train.prob[,1],
+                     data=parkinson.fil.train, class="Sano")
+
+xyplot(lift_svm_train, plot="gain") #gain curve (default)
+
+lift_svm_test<-lift(status ~ svm.pred.test.prob[,1],
+                    data=parkinson.fil.test,
+                    class="Sano")
+
+xyplot(lift_svm_test, plot="gain") #gain curve (default)
+```
+
+Por último las curvas Lift para el modelo Boosting las podemos observar en la figura \ref{lifboost}. Como ya sabíamos, el ajuste en la muestra de entrenamiento es perfecto.
+
+```{r,,fig.show="hold", out.width="45%",fig.align='center',fig.cap='\\label{liftboost}Curvas Lift para el modelo bagging (izquierda: entrenamiento, derecha: validación)'}
+require(caret)
+# Curvas Lift para Boosting
+lift_boost_train<-lift(status ~ boost.pred.train.prob[,1],
+                     data=parkinson.fil.train, class="Sano")
+
+xyplot(lift_boost_train, plot="gain") #gain curve (default)
+
+lift_boost_test<-lift(status ~ boost.pred.test.prob[,1],
+                    data=parkinson.fil.test,
+                    class="Sano")
+
+xyplot(lift_boost_test, plot="gain") #gain curve (default)
+```
+
+De acuerdo a la información aportada por las curvas Lift, el mejor modelo es el Boosting.
+
+# Conclusiones
+
+* Que se ha analizado, como, librerías utilizadas etc
+* Resumen de cada criterio y escoger modelo
+* Intentar describir modelo con las importancias
